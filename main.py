@@ -1,83 +1,95 @@
-# pip install streamlit prophet yfinance plotly
-import streamlit as st
-from datetime import date
-
-import yfinance as yf
-from prophet import Prophet
-from prophet.plot import plot_plotly
-from plotly import graph_objs as go
-
-START = "2015-01-01"
-TODAY = date.today().strftime("%Y-%m-%d")
-
-st.title('Stock Forecast App')
-
-stocks = ('GOOG', 'AAPL', 'MSFT', 'HDB','SBI','TCS','NTPC.BO')
-selected_stock = st.selectbox('Select dataset for prediction', stocks)
-
-n_years = st.slider('Years of prediction:', 1, 4)
-period = n_years * 365
+import pygame,sys
+from pygame.locals import *
+import numpy as np
+from keras.models import load_model
+import cv2
 
 
-@st.cache
-def load_data(ticker):
-    data = yf.download(ticker, START, TODAY)
-    data.reset_index(inplace=True)
-    return data
+WINDOWSIZEX = 640
+WINDOWSIZEY = 480
 
-	
-data_load_state = st.text('Loading data...')
-data = load_data(selected_stock)
-data_load_state.text('Loading data... done!')
+BOUNDRYINC = 5
 
-st.subheader('Raw data')
-st.write(data.tail())
+WHITE =(255,255,255)
+BLACK = (0,0,0)
+RED = (255,0,0)
 
-# Plot raw data
-def plot_raw_data():
-	fig = go.Figure()
-	fig.add_trace(go.Scatter(x=data['Date'], y=data['Open'], name="stock_open", line=dict(color='orange')))
-	fig.add_trace(go.Scatter(x=data['Date'], y=data['Close'], name="stock_close"))
-	fig.layout.update(title_text='Time Series data with Rangeslider', xaxis_rangeslider_visible=True)
-	st.plotly_chart(fig)
-	
-plot_raw_data()
+IMAGESAVE =False
+iswriting = False
+MODEL= load_model("bestmodel.h5")
 
-# Predict forecast with Prophet.
-df_train = data[['Date','Close']]
-df_train = df_train.rename(columns={"Date": "ds", "Close": "y"})
+LABELS = {0:"Zero",1:"One",
+          2:"Two", 3:"Three",
+          4:"Four",5:"Five",
+          6:"Six",7:"Seven",
+          8:"Eight",9:"Nine"}
 
-m = Prophet()
-m.fit(df_train)
-future = m.make_future_dataframe(periods=period)
-forecast = m.predict(future)
+#initialise pygame
+pygame.init()
+FONT = pygame.font.Font("freesansbold.ttf",18)
+DISPLAYSURF = pygame.display.set_mode((WINDOWSIZEX, WINDOWSIZEY))
+image_cnt = 0
+number_xcord = []
+number_ycord = []
 
-# Change the color of the forecast plot to orange
-forecast_fig = plot_plotly(m, forecast)
-for trace in forecast_fig['data']:
-    trace['line']['color'] = 'orange'
-# Show and plot forecast
-st.subheader('Forecast data')
-st.write(forecast.tail())
+PREDICT = True
 
-# Create a Plotly figure for the forecast with an orange line
-fig1 = go.Figure()
-fig1.add_trace(go.Scatter(x=forecast['ds'], y=forecast['yhat'], name="forecast", line=dict(color='orange')))
+while True:
 
-# Customize the layout of the forecast chart
-fig1.update_layout(
-    title_text=f'Forecast plot for {n_years} years',
-    xaxis_title='Date',
-    yaxis_title='Forecast',
-)
+  for event in pygame.event.get():
+    if event.type== QUIT:
+      pygame.quit()
+      sys.exit()
 
-st.plotly_chart(fig1)
-    
-st.write(f'Forecast plot for {n_years} years')
-st.plotly_chart(forecast_fig)
+    if event.type == MOUSEMOTION and iswriting:
+      xcord, ycord = event.pos
+      pygame.draw.circle(DISPLAYSURF,WHITE ,(xcord,ycord),4,0)
 
+      number_xcord.append(xcord)
+      number_ycord.append(ycord)
+       
+    if event.type == MOUSEBUTTONDOWN:
+      iswriting = True
 
-st.write("Forecast components")
-fig2 = m.plot_components(forecast)
-st.write(fig2)
+    if event.type == MOUSEBUTTONUP:
+      iswriting = False
+      number_xcord = sorted(number_xcord)
+      number_ycord = sorted(number_ycord)
 
+      rect_min_x, rect_max_x = max(number_xcord[0]-BOUNDRYINC,0 ), min(WINDOWSIZEX,number_xcord[-1]+BOUNDRYINC)
+      rect_min_Y, rect_max_Y = max(number_ycord[0]-BOUNDRYINC,0 ), min(WINDOWSIZEX,number_ycord[-1]+BOUNDRYINC)
+
+      number_xcord = []
+      number_ycord = []
+
+      img_arr = np.array(pygame.PixelArray(DISPLAYSURF))[rect_min_x:rect_max_x, rect_min_Y:rect_max_Y].T.astype(np.float32)
+
+      if IMAGESAVE:
+        cv2.imwrite("image.png")
+        image_cnt += 1
+
+      if PREDICT:
+        
+        pygame.draw.rect(DISPLAYSURF, RED, (rect_min_x, rect_min_Y, rect_max_x - rect_min_x, rect_max_Y - rect_min_Y), 2)
+
+        image = cv2.resize(img_arr,(28,28))
+        image = np.pad(image,(10,10),'constant',constant_values=0) 
+        image = cv2.resize(image, (28,28))/255
+
+        label = str(LABELS[np.argmax(MODEL.predict(image.reshape(1,28,28,1)))])
+
+        label_x = (rect_min_x + rect_max_x) // 2
+        label_y = rect_min_Y - 10
+
+        textSurface = FONT.render(label,True, RED, WHITE)
+        textRecObj = textSurface.get_rect()
+        textRecObj.center = (label_x, label_y)
+        #textRecObj.left , textRecObj.right = rect_min_x, rect_max_Y
+
+        DISPLAYSURF.blit(textSurface, textRecObj)
+        
+        if event.type == KEYDOWN:
+          if event.unicode == 'n':
+            DISPLAYSURF.fill(BLACK)
+        
+        pygame.display.update()
